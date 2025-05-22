@@ -43,12 +43,24 @@ def read_ini(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("utf-8", errors="ignore")
+
+        seen_sections = set()
+        cleaned_lines = []
+
+        for line in content.splitlines():
+            if line.strip().startswith("[") and line.strip().endswith("]"):
+                if line.strip() in seen_sections:
+                    continue  # skip duplicate section header
+                seen_sections.add(line.strip())
+            cleaned_lines.append(line)
+
         cfg = ConfigParser()
-        cfg.read_string("[S]\n" + content if not content.startswith("[") else content)
+        cfg.read_string("\n".join(cleaned_lines))
         return cfg
     except Exception as e:
         log(f"❌ Failed to read {key}: {e}")
         return ConfigParser()
+
 
 def days_since_last(rows, cappname):
     dates = []
