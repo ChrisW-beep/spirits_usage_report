@@ -2,6 +2,8 @@
 import boto3
 import csv
 import io
+import os
+import psutil
 from configparser import ConfigParser
 from datetime import datetime
 
@@ -11,14 +13,30 @@ REPORT_PREFIX = "store_reports/"
 report_date = datetime.today().date()
 start_date = ""
 end_date = ""
+LOG_KEY = f"{REPORT_PREFIX}generate_store_summary.log"
 
 s3 = boto3.client("s3")
+log_lines = []
 
-def read_csv(key):
+def log(msg):
+    timestamp = datetime.now().isoformat()
+    entry = f"[{timestamp}] {msg}"
+    print(entry, flush=True)
+    log_lines.append(entry)
+
+def log_memory(prefix):
+    mem_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+    log(f"🔍 Memory after processing {prefix}: {mem_mb:.2f} MB")
+
+def read_csv(key, max_lines=None):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
-        return list(csv.DictReader(io.StringIO(obj["Body"].read().decode("utf-8", errors="ignore"))))
-    except:
+        decoded = obj["Body"].read().decode("utf-8", errors="ignore").splitlines()
+        if max_lines:
+            decoded = decoded[:max_lines + 1]  # include header
+        return list(csv.DictReader(io.StringIO("\n".join(decoded))))
+    except Exception as e:
+        log(f"❌ Failed to read {key}: {e}")
         return []
 
 def read_ini(key):
@@ -28,7 +46,8 @@ def read_ini(key):
         cfg = ConfigParser()
         cfg.read_string("[S]\n" + content if not content.startswith("[") else content)
         return cfg
-    except:
+    except Exception as e:
+        log(f"❌ Failed to read {key}: {e}")
         return ConfigParser()
 
 def days_since_last(rows, cappname):
@@ -45,13 +64,13 @@ def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
     str_rows = read_csv(f"{base}/str.csv")
     if not str_rows or "NAME" not in str_rows[0]:
-        print(f"⚠️ Skipping {prefix} — str.csv missing or NAME column absent")
+        log(f"⚠️ Skipping {prefix} — str.csv missing or NAME column absent")
         return
 
     store_name = str_rows[0]["NAME"]
     reports = read_csv(f"{base}/reports.csv")
-    jnl = read_csv(f"{base}/jnl.csv")
-    stk = read_csv(f"{base}/stk.csv")
+    jnl = read_csv(f"{base}/jnl.csv", max_lines=5000)
+    stk = read_csv(f"{base}/stk.csv", max_lines=5000)
     ini = read_ini(f"{base}/spirits.ini")
 
     line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
@@ -87,25 +106,31 @@ def process_prefix(prefix):
         "ecom_bottlecaps": ""
     }
 
-    # Write to in-memory CSV and upload to S3
-    csv_buffer = io.StringIO()
-    fieldnames = list(row.keys())
-    writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+    # Write and upload single CSV for the store
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=row.keys())
     writer.writeheader()
     writer.writerow(row)
+    s3.put_object(Bucket=BUCKET, Key=f"{REPORT_PREFIX}{prefix}_summary.csv", Body=buffer.getvalue().encode("utf-8"))
+    log(f"✅ Uploaded {prefix}_summary.csv")
 
-    output_key = f"{REPORT_PREFIX}{prefix}_summary.csv"
-    s3.put_object(Bucket=BUCKET, Key=output_key, Body=csv_buffer.getvalue().encode("utf-8"))
-    print(f"✅ Uploaded {output_key}", flush=True)
+    # Clean up memory
+    del str_rows, reports, jnl, stk, ini, row, buffer, writer
+    log_memory(prefix)
 
 def main():
     paginator = s3.get_paginator("list_objects_v2")
-    result = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BASE, Delimiter="/")
-
-    for page in result:
+    for page in paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BASE, Delimiter="/"):
         for p in page.get("CommonPrefixes", []):
             prefix = p["Prefix"].split("/")[-2]
-            process_prefix(prefix)
+            try:
+                process_prefix(prefix)
+            except Exception as e:
+                log(f"❌ Error processing {prefix}: {e}")
+
+    # Final log upload
+    s3.put_object(Bucket=BUCKET, Key=LOG_KEY, Body="\n".join(log_lines).encode("utf-8"))
+    log(f"📝 Log uploaded to s3://{BUCKET}/{LOG_KEY}")
 
 if __name__ == "__main__":
     main()
