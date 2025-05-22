@@ -17,7 +17,7 @@ summary_rows = []
 # === HELPERS ===
 def read_csv_from_s3(key):
     obj = s3.get_object(Bucket=BUCKET, Key=key)
-    return pd.read_csv(obj['Body'], low_memory=False)
+    return pd.read_csv(obj['Body'], low_memory=False, dtype=str)
 
 
 def read_ini_from_s3(key):
