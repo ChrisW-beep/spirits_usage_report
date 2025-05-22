@@ -22,31 +22,43 @@ def read_csv(key):
         print(f"[{datetime.now()}] ❌ Failed to read {key}: {e}")
         return []
 
-def read_ini_allow_duplicates(key):
+def read_ini(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("latin1", errors="ignore")
-        content = "[S]\n" + content if not content.strip().startswith("[") else content
 
-        seen = set()
-        lines = content.splitlines()
-        result = []
+        # Normalize and de-duplicate section names
+        section_counts = {}
+        patched_lines = []
+        for line in content.splitlines():
+            section_match = re.match(r"\[(.+?)\]", line.strip())
+            if section_match:
+                section_name = section_match.group(1).strip()
+                section_key = section_name.upper()
 
-        for line in lines:
-            if line.strip().startswith("[") and line.strip().endswith("]"):
-                section = line.strip()
-                while section in seen:
-                    section += "_dup"
-                seen.add(section)
-                result.append(section)
+                # If already seen, rename the section
+                if section_key in section_counts:
+                    section_counts[section_key] += 1
+                    new_section = f"{section_name}_{section_counts[section_key]}"
+                else:
+                    section_counts[section_key] = 1
+                    new_section = section_name
+
+                patched_lines.append(f"[{new_section}]")
             else:
-                result.append(line)
+                patched_lines.append(line)
 
-        cfg = ConfigParser()
-        cfg.read_string("\n".join(result))
-        return cfg
+        # Ensure it has a starting section if missing
+        if not patched_lines[0].strip().startswith("["):
+            patched_lines.insert(0, "[DEFAULT]")
+
+        patched_content = "\n".join(patched_lines)
+        config = ConfigParser()
+        config.read_string(patched_content)
+        return config
+
     except Exception as e:
-        print(f"[{datetime.now()}] ❌ Failed to parse {key}: {e}")
+        print(f"[{datetime.now()}] ❌ Failed to parse {key}: {e}", flush=True)
         return ConfigParser()
 
 def days_since_last(rows, cappname):
