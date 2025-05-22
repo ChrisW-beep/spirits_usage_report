@@ -91,3 +91,22 @@ with open(OUTPUT_FILE, "w", newline="") as out:
                     "Use_frequent_shopper_report": days_since(reports, "FSPURCHHST.EXE"),
                     "Use_price_level_upcs": "",
                     "Use_line_item_discount": "Y" if not jnl[(jnl["cat"].isin(["60", "63"])) & (jnl["rflag"] == "0")].empty else "N",
+                    "Use_club_list": "Y" if jnl["promo"].astype(str).str.contains("CLUB", case=False, na=False).any() else "N",
+                    "Use_corp_polling": "",
+                    "Num_of_stores_in_corp_polling": "",
+                    "Use_kits": "Y" if not stk.empty and 'stat' in stk.columns and (stk['stat'] == "9").any() else "N",
+                    "Use_TOMRA": "N" if ini.get("Settings", "RtnDeposCode", fallback="").strip() in ["", "99999"] else "Y",
+                    "Use_Quick_PO": "",
+                    "ecom_doordash": "",
+                    "ecom_ubereats": "",
+                    "ecom_cthive": "",
+                    "ecom_winefetch": "",
+                    "ecom_bottlenose": "",
+                    "ecom_bottlecaps": ""
+                }
+
+                writer.writerow(row)
+
+            except Exception as e:
+                print(f"⚠️ Skipped {prefix}: {e}")
+                continue
