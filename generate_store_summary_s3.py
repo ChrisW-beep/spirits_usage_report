@@ -107,7 +107,7 @@ def process_prefix(prefix):
             "use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
             "use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
             "use_price_level_upcs": "Y",
-            "use_line_item_discount": "Y" if line_discount else "N",
+            "use_line_item_discount": "Y",
             "use_club_list": "Y" if club_used else "N",
             "use_corp_polling": "",
             "num_of_stores_in_corp_polling": "",
