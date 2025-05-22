@@ -69,8 +69,15 @@ with open(OUTPUT_FILE, "w", newline="") as out:
             base = prefix.rstrip('/')
             try:
                 str_rows = read_csv_lines(f"{base}/str.csv")
-                store_id = str_rows[0]["store"] if str_rows else ""
-                combined_id = f"{store_id} ({base.split('/')[-1]})"
+                if str_rows and "name" in str_rows[0]:
+                print(f"🔑 str.csv keys in {base}: {list(str_rows[0].keys())}")
+                    store_name = str_rows[0]["name"]
+                else:
+                    print(f"⚠️ str.csv missing or missing 'name' in {base}, skipping")
+                    continue
+                
+                combined_id = f"{store_name} ({base.split('/')[-1]})"
+
 
                 reports = read_csv_lines(f"{base}/reports.csv")
                 jnl = read_csv_lines(f"{base}/jnl.csv")
