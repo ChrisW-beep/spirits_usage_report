@@ -69,11 +69,11 @@ with open(OUTPUT_FILE, "w", newline="") as out:
             base = prefix.rstrip('/')
             try:
                 str_rows = read_csv_lines(f"{base}/str.csv")
-                if str_rows and "name" in str_rows[0]:
+                if str_rows and "Name" in str_rows[0]:
                     print(f"🔑 str.csv keys in {base}: {list(str_rows[0].keys())}")
-                    store_name = str_rows[0]["name"]
+                    store_name = str_rows[0]["Name"]
                 else:
-                    print(f"⚠️ str.csv missing or missing 'name' in {base}, skipping")
+                    print(f"⚠️ str.csv missing or missing 'Name' in {base}, skipping")
                     continue
                 
                 combined_id = f"{store_name} ({base.split('/')[-1]})"
