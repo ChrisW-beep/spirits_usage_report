@@ -25,27 +25,36 @@ def read_csv(key):
 def read_ini(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
-        content = obj["Body"].read().decode("latin1", errors="ignore")
-        
-        # Remove duplicate section headers by renaming them with suffixes
+        raw = obj["Body"].read().decode("latin1", errors="ignore")
+
+        # Fix duplicate sections
+        lines = raw.splitlines()
         section_counts = {}
-        processed_lines = []
-        for line in content.splitlines():
+        fixed_lines = []
+
+        for line in lines:
             if line.strip().startswith("[") and line.strip().endswith("]"):
-                section = line.strip()
-                section_counts[section] = section_counts.get(section, 0) + 1
-                if section_counts[section] > 1:
-                    section = f"{section}_{section_counts[section]}"
-                processed_lines.append(section)
+                section = line.strip().strip("[]")
+                count = section_counts.get(section, 0)
+                if count > 0:
+                    new_section = f"{section}_{count+1}"
+                    print(f"[{datetime.now().isoformat()}] 🛠 Renaming duplicate section [{section}] to [{new_section}] in {key}", flush=True)
+                    fixed_lines.append(f"[{new_section}]")
+                else:
+                    fixed_lines.append(line.strip())
+                section_counts[section] = count + 1
             else:
-                processed_lines.append(line)
+                fixed_lines.append(line)
+
+        fixed_content = "\n".join(fixed_lines)
 
         cfg = ConfigParser()
-        cfg.read_string("\n".join(processed_lines))
+        cfg.read_string(fixed_content)
         return cfg
     except Exception as e:
         print(f"[{datetime.now().isoformat()}] ❌ Failed to parse {key}: {e}", flush=True)
         return ConfigParser()
+
 
 
 def days_since_last(rows, cappname):
