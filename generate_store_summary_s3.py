@@ -70,7 +70,7 @@ with open(OUTPUT_FILE, "w", newline="") as out:
             try:
                 str_rows = read_csv_lines(f"{base}/str.csv")
                 if str_rows and "name" in str_rows[0]:
-                print(f"🔑 str.csv keys in {base}: {list(str_rows[0].keys())}")
+                    print(f"🔑 str.csv keys in {base}: {list(str_rows[0].keys())}")
                     store_name = str_rows[0]["name"]
                 else:
                     print(f"⚠️ str.csv missing or missing 'name' in {base}, skipping")
