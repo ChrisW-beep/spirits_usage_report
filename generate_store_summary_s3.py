@@ -82,9 +82,16 @@ with open(OUTPUT_FILE, "w", newline="") as out:
                     continue
 
                 first_row = str_rows[0]
+                print(f"🔑 Available columns in str.csv: {list(first_row.keys())}")
+                
                 possible_keys = ["Name", "name", "STORENAME", "Store Name"]
-                store_name = next((first_row.get(k) for k in possible_keys if k in first_row), None)
-
+                store_name = None
+                
+                for key in possible_keys:
+                    if key in first_row and first_row[key].strip():
+                        store_name = first_row[key].strip()
+                        break
+                
                 if store_name:
                     print(f"🏪 Store name: {store_name}")
                 else:
