@@ -43,6 +43,9 @@ pages = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX, Delimiter="/")
 
 for page in pages:
     for prefix in page.get("CommonPrefixes", []):
+        if len(summary_rows) >= 10:
+            break  # TEMP: only process 10 prefixes max
+
         store_prefix = prefix["Prefix"]
         s3_key_base = store_prefix.rstrip('/')
 
