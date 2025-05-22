@@ -22,7 +22,7 @@ def read_csv(key):
         print(f"[{datetime.now()}] ❌ Failed to read {key}: {e}")
         return []
 
-def read_ini(key):
+def read_ini_allow_duplicates(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("latin1", errors="ignore")
