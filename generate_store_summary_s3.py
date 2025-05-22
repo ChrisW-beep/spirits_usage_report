@@ -1,23 +1,26 @@
 import boto3
-import pandas as pd
 import csv
 from configparser import ConfigParser
 from datetime import datetime
+from io import StringIO
 
 # === CONFIG ===
 BUCKET = "spiritsbackups"
 PREFIX = "processed_csvs/"
 OUTPUT_FILE = "store_summary.csv"
 report_date = datetime.today().date()
-start_date = ""  # Optional
-end_date = ""    # Optional
+start_date = ""
+end_date = ""
 
 s3 = boto3.client("s3")
 
 # === HELPERS ===
-def read_csv(key):
-    obj = s3.get_object(Bucket=BUCKET, Key=key)
-    return pd.read_csv(obj['Body'], low_memory=False, dtype=str)
+def read_csv_lines(key):
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+        return list(csv.DictReader(StringIO(obj['Body'].read().decode('utf-8', errors='ignore'))))
+    except Exception:
+        return []
 
 def read_ini(key):
     try:
@@ -29,17 +32,17 @@ def read_ini(key):
     except:
         return ConfigParser()
 
-def days_since(df, cappname):
-    if "cappname" not in df.columns or "rundate" not in df.columns:
-        return ''
-    df = df[df['cappname'].str.upper() == cappname.upper()]
-    if df.empty:
-        return ''
-    df['rundate'] = pd.to_datetime(df['rundate'], errors='coerce')
-    last = df['rundate'].max()
-    return (report_date - last.date()).days if pd.notnull(last) else ''
+def days_since_last(rows, cappname):
+    filtered = [r for r in rows if r.get("cappname", "").upper() == cappname.upper()]
+    dates = []
+    for row in filtered:
+        try:
+            dates.append(datetime.strptime(row["rundate"], "%Y-%m-%d").date())
+        except:
+            continue
+    return (report_date - max(dates)).days if dates else ""
 
-# === WRITE CSV HEADER ===
+# === CSV SETUP ===
 headers = [
     "store_id (s3_prefix)", "report_date", "start_date", "end_date",
     "Use_Inventory_Counting_Report", "Use_Suggested_Order_Report",
@@ -51,51 +54,54 @@ headers = [
     "ecom_doordash", "ecom_ubereats", "ecom_cthive",
     "ecom_winefetch", "ecom_bottlenose", "ecom_bottlecaps"
 ]
+
 with open(OUTPUT_FILE, "w", newline="") as out:
     writer = csv.DictWriter(out, fieldnames=headers)
     writer.writeheader()
 
-    # === LIST PREFIXES AND LOOP ===
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX, Delimiter="/")
 
     for page in pages:
         for pfx in page.get("CommonPrefixes", []):
             prefix = pfx["Prefix"]
-            print(f"📦 Processing: {prefix}")
+            print(f"🔍 Processing: {prefix}")
+            base = prefix.rstrip('/')
             try:
-                base = prefix.rstrip('/')
-                jnl = read_csv(f"{base}/jnl.csv")
-                str_df = read_csv(f"{base}/str.csv")
-                reports = read_csv(f"{base}/reports.csv")
-                store_id = str_df.iloc[0]['store'] if "store" in str_df.columns else ''
+                str_rows = read_csv_lines(f"{base}/str.csv")
+                store_id = str_rows[0]["store"] if str_rows else ""
                 combined_id = f"{store_id} ({base.split('/')[-1]})"
 
-                try:
-                    stk = read_csv(f"{base}/stk.csv")
-                except:
-                    stk = pd.DataFrame()
-
+                reports = read_csv_lines(f"{base}/reports.csv")
+                jnl = read_csv_lines(f"{base}/jnl.csv")
+                stk = read_csv_lines(f"{base}/stk.csv")
                 ini = read_ini(f"{base}/spirits.ini")
+
+                line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
+                club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
+                kits_used = any(r.get("stat") == "9" for r in stk)
+
+                rtn_code = ini.get("Settings", "RtnDeposCode", fallback="").strip()
+                use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
 
                 row = {
                     "store_id (s3_prefix)": combined_id,
                     "report_date": report_date,
                     "start_date": start_date,
                     "end_date": end_date,
-                    "Use_Inventory_Counting_Report": days_since(reports, "INVCOUNT.EXE"),
-                    "Use_Suggested_Order_Report": days_since(reports, "SUGORDER.EXE"),
-                    "Use_NJ_Rips_Report": days_since(reports, "BDRIPRPT.EXE"),
-                    "Use_NJ_Buydowns_Rips_Report": days_since(reports, "BDRIPRPT.EXE"),
-                    "Use_inventory_value_analysis_report": days_since(reports, "INVANAL"),
-                    "Use_frequent_shopper_report": days_since(reports, "FSPURCHHST.EXE"),
+                    "Use_Inventory_Counting_Report": days_since_last(reports, "INVCOUNT.EXE"),
+                    "Use_Suggested_Order_Report": days_since_last(reports, "SUGORDER.EXE"),
+                    "Use_NJ_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+                    "Use_NJ_Buydowns_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+                    "Use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
+                    "Use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
                     "Use_price_level_upcs": "",
-                    "Use_line_item_discount": "Y" if not jnl[(jnl["cat"].isin(["60", "63"])) & (jnl["rflag"] == "0")].empty else "N",
-                    "Use_club_list": "Y" if jnl["promo"].astype(str).str.contains("CLUB", case=False, na=False).any() else "N",
+                    "Use_line_item_discount": "Y" if line_discount else "N",
+                    "Use_club_list": "Y" if club_used else "N",
                     "Use_corp_polling": "",
                     "Num_of_stores_in_corp_polling": "",
-                    "Use_kits": "Y" if not stk.empty and 'stat' in stk.columns and (stk['stat'] == "9").any() else "N",
-                    "Use_TOMRA": "N" if ini.get("Settings", "RtnDeposCode", fallback="").strip() in ["", "99999"] else "Y",
+                    "Use_kits": "Y" if kits_used else "N",
+                    "Use_TOMRA": use_tomra,
                     "Use_Quick_PO": "",
                     "ecom_doordash": "",
                     "ecom_ubereats": "",
@@ -108,5 +114,5 @@ with open(OUTPUT_FILE, "w", newline="") as out:
                 writer.writerow(row)
 
             except Exception as e:
-                print(f"⚠️ Skipped {prefix}: {e}")
+                print(f"⚠️ Skipping {prefix}: {e}")
                 continue
