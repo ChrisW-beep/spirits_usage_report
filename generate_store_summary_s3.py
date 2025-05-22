@@ -73,14 +73,17 @@ with open(OUTPUT_FILE, "w", newline="") as out:
                     print(f"⚠️ str.csv is empty in {base}")
                     continue
 
-                possible_keys = ["Name", "name", "STORENAME", "Store Name"]
-                store_name = next((str_rows[0][k] for k in possible_keys if k in str_rows[0]), None)
-
-                if not store_name:
+                # Normalize keys for matching
+                str_header_map = {k.lower(): k for k in str_rows[0].keys()}
+                name_key = next((str_header_map[k] for k in ["name", "storename", "store name"] if k in str_header_map), None)
+                
+                if name_key:
+                    store_name = str_rows[0][name_key]
+                    print(f"🏪 Store name: {store_name}")
+                else:
                     print(f"⚠️ No valid name field in str.csv for {base}")
                     continue
-                else:
-                    print(f"🏪 Store name: {store_name}")
+
 
                 combined_id = f"{store_name} ({base.split('/')[-1]})"
 
