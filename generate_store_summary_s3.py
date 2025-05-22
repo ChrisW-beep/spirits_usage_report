@@ -151,3 +151,16 @@ for page in pages:
 
     if not found_any_prefix:
         print("❌ No store prefixes were processed. Check if objects exist under each folder.")
+
+if __name__ == "__main__":
+    try:
+        print("=== Running Report ===")
+        # everything you already have should be in a function like `run_report()`
+        run_report()
+        print("✅ Finished report generation.")
+    except Exception as e:
+        import traceback
+        print("❌ Fatal error during report generation:")
+        traceback.print_exc()
+        exit(1)
+
