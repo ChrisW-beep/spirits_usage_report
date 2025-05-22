@@ -62,27 +62,45 @@ with open(OUTPUT_FILE, "w", newline="") as out:
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX, Delimiter="/")
 
+    found_any_prefix = False
+
     for page in pages:
-        for pfx in page.get("CommonPrefixes", []):
+        common_prefixes = page.get("CommonPrefixes", [])
+        if not common_prefixes:
+            print("⚠️ No CommonPrefixes found. Double-check if the folders contain at least one object.")
+        for pfx in common_prefixes:
+            found_any_prefix = True
             prefix = pfx["Prefix"]
             print(f"🔍 Processing: {prefix}")
             base = prefix.rstrip('/')
+
             try:
+                # Load str.csv first to get store name
                 str_rows = read_csv_lines(f"{base}/str.csv")
                 if not str_rows:
-                    print(f"⚠️ str.csv is empty in {base}")
+                    print(f"⚠️ str.csv is missing or empty in {base}")
                     continue
 
-                # Normalize keys for matching
-                str_header_map = {k.lower(): k for k in str_rows[0].keys()}
-                name_key = next((str_header_map[k] for k in ["name", "storename", "store name"] if k in str_header_map), None)
-                
-                if name_key:
-                    store_name = str_rows[0][name_key]
+                # More forgiving check for name field
+                first_row = str_rows[0]
+                possible_keys = ["Name", "name", "STORENAME", "Store Name"]
+                store_name = next((first_row.get(k) for k in possible_keys if k in first_row), None)
+
+                if store_name:
                     print(f"🏪 Store name: {store_name}")
                 else:
                     print(f"⚠️ No valid name field in str.csv for {base}")
                     continue
+
+                # Continue with rest of your logic...
+                # (reports.csv, jnl.csv, etc.)
+
+            except Exception as e:
+                print(f"❌ Failed to process {prefix}: {e}")
+                continue
+
+    if not found_any_prefix:
+        print("❌ No store prefixes were processed. Check if objects exist under each folder.")
 
 
                 combined_id = f"{store_name} ({base.split('/')[-1]})"
