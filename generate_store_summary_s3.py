@@ -68,13 +68,16 @@ with open(OUTPUT_FILE, "w", newline="") as out:
             print(f"🔍 Processing: {prefix}")
             base = prefix.rstrip('/')
             try:
-                str_rows = read_csv_lines(f"{base}/str.csv")
-                if str_rows and "Name" in str_rows[0]:
-                    print(f"🔑 str.csv keys in {base}: {list(str_rows[0].keys())}")
-                    store_name = str_rows[0]["Name"]
-                else:
-                    print(f"⚠️ str.csv missing or missing 'Name' in {base}, skipping")
+               possible_keys = ["Name", "name", "STORENAME", "Store Name"]
+               store_name = next((str_rows[0][k] for k in possible_keys if k in str_rows[0]), None)
+                
+               if store_name:
+                    print(f"🏪 Store name: {store_name}")
+               else:
+                    print(f"⚠️ No valid name field in str.csv for {base}")
                     continue
+
+
                 
                 combined_id = f"{store_name} ({base.split('/')[-1]})"
 
