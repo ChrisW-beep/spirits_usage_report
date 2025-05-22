@@ -2,6 +2,7 @@
 import boto3
 import csv
 import io
+import re
 from configparser import ConfigParser
 from datetime import datetime
 
