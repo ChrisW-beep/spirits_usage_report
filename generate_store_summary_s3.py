@@ -27,7 +27,7 @@ def read_ini_allow_duplicates(key):
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("latin1", errors="ignore")
 
-        # Normalize and de-duplicate section names
+        # Rename duplicate sections
         section_counts = {}
         patched_lines = []
         for line in content.splitlines():
@@ -36,7 +36,6 @@ def read_ini_allow_duplicates(key):
                 section_name = section_match.group(1).strip()
                 section_key = section_name.upper()
 
-                # If already seen, rename the section
                 if section_key in section_counts:
                     section_counts[section_key] += 1
                     new_section = f"{section_name}_{section_counts[section_key]}"
@@ -48,18 +47,25 @@ def read_ini_allow_duplicates(key):
             else:
                 patched_lines.append(line)
 
-        # Ensure it has a starting section if missing
-        if not patched_lines[0].strip().startswith("["):
+        if not patched_lines or not patched_lines[0].strip().startswith("["):
             patched_lines.insert(0, "[DEFAULT]")
 
         patched_content = "\n".join(patched_lines)
         config = ConfigParser()
         config.read_string(patched_content)
-        return config
+
+        # 🔍 Search all sections for RtnDeposCode
+        rtn_code = ""
+        for section in config.sections():
+            if config.has_option(section, "RtnDeposCode"):
+                rtn_code = config.get(section, "RtnDeposCode").strip()
+                break
+
+        return config, rtn_code
 
     except Exception as e:
         print(f"[{datetime.now()}] ❌ Failed to parse {key}: {e}", flush=True)
-        return ConfigParser()
+        return ConfigParser(), ""
 
 def days_since_last(rows, cappname):
     dates = []
@@ -90,8 +96,9 @@ def process_prefix(prefix):
     line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
     club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
     kits_used = any(r.get("stat") == "9" for r in stk)
-    rtn_code = ini.get("S", "RtnDeposCode", fallback="").strip()
+    ini, rtn_code = read_ini_allow_duplicates(f"{base}/spirits.ini")
     use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
+
 
     row = {
         "store_id (s3_prefix)": f"{store_name} ({prefix})",
