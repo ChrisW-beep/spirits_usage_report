@@ -84,7 +84,7 @@ with open(OUTPUT_FILE, "w", newline="") as out:
                 first_row = str_rows[0]
                 print(f"🔑 Available columns in str.csv: {list(first_row.keys())}")
                 
-                possible_keys = ["Name", "name", "STORENAME", "Store Name"]
+                possible_keys = ["Name", "name", "STORENAME", "Store Name","NAME"]
                 store_name = None
                 
                 for key in possible_keys:
