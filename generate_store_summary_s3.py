@@ -26,15 +26,27 @@ def read_ini(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("latin1", errors="ignore")
+        
+        # Remove duplicate section headers by renaming them with suffixes
+        section_counts = {}
+        processed_lines = []
+        for line in content.splitlines():
+            if line.strip().startswith("[") and line.strip().endswith("]"):
+                section = line.strip()
+                section_counts[section] = section_counts.get(section, 0) + 1
+                if section_counts[section] > 1:
+                    section = f"{section}_{section_counts[section]}"
+                processed_lines.append(section)
+            else:
+                processed_lines.append(line)
+
         cfg = ConfigParser()
-        cfg.read_string("[S]\n" + content if not content.startswith("[") else content)
+        cfg.read_string("\n".join(processed_lines))
         return cfg
-    except DuplicateSectionError as dse:
-        print(f"[{datetime.now().isoformat()}] ⚠️ INI format issue in {key}: {dse}", flush=True)
-        return ConfigParser()
     except Exception as e:
-        print(f"[{datetime.now().isoformat()}] ❌ Failed to read {key}: {e}", flush=True)
+        print(f"[{datetime.now().isoformat()}] ❌ Failed to parse {key}: {e}", flush=True)
         return ConfigParser()
+
 
 def days_since_last(rows, cappname):
     dates = []
