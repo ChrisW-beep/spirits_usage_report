@@ -1,15 +1,13 @@
+# generate_store_summary_s3.py
 import boto3
 import csv
+import io
 from configparser import ConfigParser
 from datetime import datetime
-import io
-import os
 
 BUCKET = "spiritsbackups"
 PREFIX_BASE = "processed_csvs/"
-REPORT_KEY = "store_reports/store_summary.csv"
-LOCAL_TMP_PATH = "/tmp/store_summary.csv"
-
+REPORT_PREFIX = "store_reports/"
 report_date = datetime.today().date()
 start_date = ""
 end_date = ""
@@ -43,7 +41,7 @@ def days_since_last(rows, cappname):
                 continue
     return (report_date - max(dates)).days if dates else ""
 
-def process_prefix(prefix, writer):
+def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
     str_rows = read_csv(f"{base}/str.csv")
     if not str_rows or "NAME" not in str_rows[0]:
@@ -89,37 +87,25 @@ def process_prefix(prefix, writer):
         "ecom_bottlecaps": ""
     }
 
+    # Write to in-memory CSV and upload to S3
+    csv_buffer = io.StringIO()
+    fieldnames = list(row.keys())
+    writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+    writer.writeheader()
     writer.writerow(row)
+
+    output_key = f"{REPORT_PREFIX}{prefix}_summary.csv"
+    s3.put_object(Bucket=BUCKET, Key=output_key, Body=csv_buffer.getvalue().encode("utf-8"))
+    print(f"✅ Uploaded {output_key}", flush=True)
 
 def main():
     paginator = s3.get_paginator("list_objects_v2")
     result = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BASE, Delimiter="/")
 
-    fieldnames = [
-        "store_id (s3_prefix)", "report_date", "start_date", "end_date",
-        "Use_Inventory_Counting_Report", "Use_Suggested_Order_Report",
-        "Use_NJ_Rips_Report", "Use_NJ_Buydowns_Rips_Report",
-        "Use_inventory_value_analysis_report", "Use_frequent_shopper_report",
-        "Use_price_level_upcs", "Use_line_item_discount", "Use_club_list",
-        "Use_corp_polling", "Num_of_stores_in_corp_polling",
-        "Use_kits", "Use_TOMRA", "Use_Quick_PO",
-        "ecom_doordash", "ecom_ubereats", "ecom_cthive",
-        "ecom_winefetch", "ecom_bottlenose", "ecom_bottlecaps"
-    ]
-
-    with open(LOCAL_TMP_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for page in result:
-            for p in page.get("CommonPrefixes", []):
-                prefix = p["Prefix"].split("/")[-2]
-                process_prefix(prefix, writer)
-
-    with open(LOCAL_TMP_PATH, "rb") as f:
-        s3.put_object(Bucket=BUCKET, Key=REPORT_KEY, Body=f.read())
-
-    print(f"✅ Uploaded store summary report to s3://{BUCKET}/{REPORT_KEY}")
+    for page in result:
+        for p in page.get("CommonPrefixes", []):
+            prefix = p["Prefix"].split("/")[-2]
+            process_prefix(prefix)
 
 if __name__ == "__main__":
     main()
