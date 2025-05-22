@@ -1,166 +1,120 @@
+# generate_store_summary_s3.py
 import boto3
 import csv
+import io
 from configparser import ConfigParser
 from datetime import datetime
-from io import StringIO
 
-# === CONFIG ===
 BUCKET = "spiritsbackups"
-PREFIX = "processed_csvs/"
-OUTPUT_FILE = "store_summary.csv"
+PREFIX_BASE = "processed_csvs/"
+REPORT_KEY = "store_reports/store_summary.csv"
 report_date = datetime.today().date()
 start_date = ""
 end_date = ""
 
 s3 = boto3.client("s3")
 
-# === HELPERS ===
-def read_csv_lines(key):
+def read_csv(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
-        return list(csv.DictReader(StringIO(obj['Body'].read().decode('utf-8', errors='ignore'))))
-    except Exception:
+        return list(csv.DictReader(io.StringIO(obj["Body"].read().decode("utf-8", errors="ignore"))))
+    except:
         return []
 
 def read_ini(key):
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
-        content = obj['Body'].read().decode('utf-8', errors='ignore')
-        config = ConfigParser()
-        config.read_string("[Settings]\n" + content if not content.startswith('[') else content)
-        return config
+        content = obj["Body"].read().decode("utf-8", errors="ignore")
+        cfg = ConfigParser()
+        cfg.read_string("[S]\n" + content if not content.startswith("[") else content)
+        return cfg
     except:
         return ConfigParser()
 
 def days_since_last(rows, cappname):
-    filtered = [r for r in rows if r.get("cappname", "").upper() == cappname.upper()]
     dates = []
-    for row in filtered:
-        try:
-            dates.append(datetime.strptime(row["rundate"], "%Y-%m-%d").date())
-        except:
-            continue
+    for r in rows:
+        if r.get("cappname", "").upper() == cappname.upper():
+            try:
+                dates.append(datetime.strptime(r["rundate"], "%Y-%m-%d").date())
+            except:
+                continue
     return (report_date - max(dates)).days if dates else ""
 
-# === CSV SETUP ===
-headers = [
-    "store_id (s3_prefix)", "report_date", "start_date", "end_date",
-    "Use_Inventory_Counting_Report", "Use_Suggested_Order_Report",
-    "Use_NJ_Rips_Report", "Use_NJ_Buydowns_Rips_Report",
-    "Use_inventory_value_analysis_report", "Use_frequent_shopper_report",
-    "Use_price_level_upcs", "Use_line_item_discount", "Use_club_list",
-    "Use_corp_polling", "Num_of_stores_in_corp_polling",
-    "Use_kits", "Use_TOMRA", "Use_Quick_PO",
-    "ecom_doordash", "ecom_ubereats", "ecom_cthive",
-    "ecom_winefetch", "ecom_bottlenose", "ecom_bottlecaps"
-]
+def process_prefix(prefix, writer):
+    base = f"{PREFIX_BASE}{prefix}"
+    str_rows = read_csv(f"{base}/str.csv")
+    if not str_rows or "NAME" not in str_rows[0]:
+        print(f"⚠️ Skipping {prefix} — str.csv missing or NAME column absent")
+        return
 
-with open(OUTPUT_FILE, "w", newline="") as out:
-    writer = csv.DictWriter(out, fieldnames=headers)
+    store_name = str_rows[0]["NAME"]
+    reports = read_csv(f"{base}/reports.csv")
+    jnl = read_csv(f"{base}/jnl.csv")
+    stk = read_csv(f"{base}/stk.csv")
+    ini = read_ini(f"{base}/spirits.ini")
+
+    line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
+    club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
+    kits_used = any(r.get("stat") == "9" for r in stk)
+    rtn_code = ini.get("S", "RtnDeposCode", fallback="").strip()
+    use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
+
+    row = {
+        "store_id (s3_prefix)": f"{store_name} ({prefix})",
+        "report_date": report_date,
+        "start_date": start_date,
+        "end_date": end_date,
+        "Use_Inventory_Counting_Report": days_since_last(reports, "INVCOUNT.EXE"),
+        "Use_Suggested_Order_Report": days_since_last(reports, "SUGORDER.EXE"),
+        "Use_NJ_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+        "Use_NJ_Buydowns_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+        "Use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
+        "Use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
+        "Use_price_level_upcs": "",
+        "Use_line_item_discount": "Y" if line_discount else "N",
+        "Use_club_list": "Y" if club_used else "N",
+        "Use_corp_polling": "",
+        "Num_of_stores_in_corp_polling": "",
+        "Use_kits": "Y" if kits_used else "N",
+        "Use_TOMRA": use_tomra,
+        "Use_Quick_PO": "",
+        "ecom_doordash": "",
+        "ecom_ubereats": "",
+        "ecom_cthive": "",
+        "ecom_winefetch": "",
+        "ecom_bottlenose": "",
+        "ecom_bottlecaps": ""
+    }
+
+    writer.writerow(row)
+
+def main():
+    paginator = s3.get_paginator("list_objects_v2")
+    result = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BASE, Delimiter="/")
+
+    output = io.StringIO()
+    fieldnames = [
+        "store_id (s3_prefix)", "report_date", "start_date", "end_date",
+        "Use_Inventory_Counting_Report", "Use_Suggested_Order_Report",
+        "Use_NJ_Rips_Report", "Use_NJ_Buydowns_Rips_Report",
+        "Use_inventory_value_analysis_report", "Use_frequent_shopper_report",
+        "Use_price_level_upcs", "Use_line_item_discount", "Use_club_list",
+        "Use_corp_polling", "Num_of_stores_in_corp_polling",
+        "Use_kits", "Use_TOMRA", "Use_Quick_PO",
+        "ecom_doordash", "ecom_ubereats", "ecom_cthive",
+        "ecom_winefetch", "ecom_bottlenose", "ecom_bottlecaps"
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
 
-    paginator = s3.get_paginator("list_objects_v2")
-    pages = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX, Delimiter="/")
+    for page in result:
+        for p in page.get("CommonPrefixes", []):
+            prefix = p["Prefix"].split("/")[-2]
+            process_prefix(prefix, writer)
 
-    found_any_prefix = False
-    wrote_header = False  # Only write headers once
-
-for page in pages:
-    common_prefixes = page.get("CommonPrefixes", [])
-    if not common_prefixes:
-        print("⚠️ No CommonPrefixes found. Double-check if folders contain at least one object.")
-
-    for pfx in common_prefixes:
-        prefix = pfx["Prefix"]
-        base = prefix.rstrip('/')
-        print(f"🔍 Processing: {prefix}")
-
-        try:
-            str_rows = read_csv_lines(f"{base}/str.csv")
-            if not str_rows:
-                print(f"⚠️ str.csv is missing or empty in {base}")
-                continue
-
-            first_row = str_rows[0]
-            possible_keys = ["name", "storename", "store name"]
-            lower_row = {k.lower(): v for k, v in first_row.items()}
-
-            store_name = None
-            for key in possible_keys:
-                if key in lower_row and lower_row[key].strip():
-                    store_name = lower_row[key].strip()
-                    break
-
-            if not store_name:
-                print(f"⚠️ No valid name field in str.csv for {base}")
-                continue
-
-            print(f"🏪 Store name: {store_name}")
-
-            combined_id = f"{store_name} ({base.split('/')[-1]})"
-            reports = read_csv_lines(f"{base}/reports.csv")
-            jnl = read_csv_lines(f"{base}/jnl.csv")
-            stk = read_csv_lines(f"{base}/stk.csv")
-            ini = read_ini(f"{base}/spirits.ini")
-
-            line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
-            club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
-            kits_used = any(r.get("stat") == "9" for r in stk)
-            rtn_code = ini.get("Settings", "RtnDeposCode", fallback="").strip()
-            use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
-
-            row = {
-                "store_id (s3_prefix)": combined_id,
-                "report_date": report_date,
-                "start_date": start_date,
-                "end_date": end_date,
-                "Use_Inventory_Counting_Report": days_since_last(reports, "INVCOUNT.EXE"),
-                "Use_Suggested_Order_Report": days_since_last(reports, "SUGORDER.EXE"),
-                "Use_NJ_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
-                "Use_NJ_Buydowns_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
-                "Use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
-                "Use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
-                "Use_price_level_upcs": "",
-                "Use_line_item_discount": "Y" if line_discount else "N",
-                "Use_club_list": "Y" if club_used else "N",
-                "Use_corp_polling": "",
-                "Num_of_stores_in_corp_polling": "",
-                "Use_kits": "Y" if kits_used else "N",
-                "Use_TOMRA": use_tomra,
-                "Use_Quick_PO": "",
-                "ecom_doordash": "",
-                "ecom_ubereats": "",
-                "ecom_cthive": "",
-                "ecom_winefetch": "",
-                "ecom_bottlenose": "",
-                "ecom_bottlecaps": ""
-            }
-
-            # ✅ Append row to CSV
-            with open(OUTPUT_FILE, "a", newline="") as out:
-                writer = csv.DictWriter(out, fieldnames=headers)
-                if not wrote_header:
-                    writer.writeheader()
-                    wrote_header = True
-                writer.writerow(row)
-
-        except Exception as e:
-            print(f"❌ Failed to process {prefix}: {e}")
-            continue
-
-
-    if not found_any_prefix:
-        print("❌ No store prefixes were processed. Check if objects exist under each folder.")
+    s3.put_object(Bucket=BUCKET, Key=REPORT_KEY, Body=output.getvalue().encode("utf-8"))
+    print(f"✅ Uploaded store summary report to s3://{BUCKET}/{REPORT_KEY}")
 
 if __name__ == "__main__":
-    try:
-        print("=== Running Report ===")
-        # everything you already have should be in a function like `run_report()`
-        run_report()
-        print("✅ Finished report generation.")
-    except Exception as e:
-        import traceback
-        print("❌ Fatal error during report generation:")
-        traceback.print_exc()
-        exit(1)
-
+    main()
