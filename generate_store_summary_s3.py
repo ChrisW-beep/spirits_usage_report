@@ -63,87 +63,91 @@ with open(OUTPUT_FILE, "w", newline="") as out:
     pages = paginator.paginate(Bucket=BUCKET, Prefix=PREFIX, Delimiter="/")
 
     found_any_prefix = False
+    wrote_header = False  # Only write headers once
 
-    for page in pages:
-        common_prefixes = page.get("CommonPrefixes", [])
-        if not common_prefixes:
-            print("⚠️ No CommonPrefixes found. Double-check if the folders contain at least one object.")
+for page in pages:
+    common_prefixes = page.get("CommonPrefixes", [])
+    if not common_prefixes:
+        print("⚠️ No CommonPrefixes found. Double-check if folders contain at least one object.")
 
-        for pfx in common_prefixes:
-            found_any_prefix = True
-            prefix = pfx["Prefix"]
-            print(f"🔍 Processing: {prefix}")
-            base = prefix.rstrip('/')
+    for pfx in common_prefixes:
+        prefix = pfx["Prefix"]
+        base = prefix.rstrip('/')
+        print(f"🔍 Processing: {prefix}")
 
-            try:
-                str_rows = read_csv_lines(f"{base}/str.csv")
-                if not str_rows:
-                    print(f"⚠️ str.csv is missing or empty in {base}")
-                    continue
+        try:
+            str_rows = read_csv_lines(f"{base}/str.csv")
+            if not str_rows:
+                print(f"⚠️ str.csv is missing or empty in {base}")
+                continue
 
-                first_row = str_rows[0]
-                print(f"🔑 Available columns in str.csv: {list(first_row.keys())}")
-                
-                possible_keys = ["Name", "name", "STORENAME", "Store Name","NAME"]
-                store_name = None
-                
-                for key in possible_keys:
-                    if key in first_row and first_row[key].strip():
-                        store_name = first_row[key].strip()
-                        break
-                
-                if store_name:
-                    print(f"🏪 Store name: {store_name}")
-                else:
-                    print(f"⚠️ No valid name field in str.csv for {base}")
-                    continue
+            first_row = str_rows[0]
+            possible_keys = ["name", "storename", "store name"]
+            lower_row = {k.lower(): v for k, v in first_row.items()}
 
-                combined_id = f"{store_name} ({base.split('/')[-1]})"
+            store_name = None
+            for key in possible_keys:
+                if key in lower_row and lower_row[key].strip():
+                    store_name = lower_row[key].strip()
+                    break
 
-                reports = read_csv_lines(f"{base}/reports.csv")
-                jnl = read_csv_lines(f"{base}/jnl.csv")
-                stk = read_csv_lines(f"{base}/stk.csv")
-                ini = read_ini(f"{base}/spirits.ini")
+            if not store_name:
+                print(f"⚠️ No valid name field in str.csv for {base}")
+                continue
 
-                line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
-                club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
-                kits_used = any(r.get("stat") == "9" for r in stk)
+            print(f"🏪 Store name: {store_name}")
 
-                rtn_code = ini.get("Settings", "RtnDeposCode", fallback="").strip()
-                use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
+            combined_id = f"{store_name} ({base.split('/')[-1]})"
+            reports = read_csv_lines(f"{base}/reports.csv")
+            jnl = read_csv_lines(f"{base}/jnl.csv")
+            stk = read_csv_lines(f"{base}/stk.csv")
+            ini = read_ini(f"{base}/spirits.ini")
 
-                row = {
-                    "store_id (s3_prefix)": combined_id,
-                    "report_date": report_date,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "Use_Inventory_Counting_Report": days_since_last(reports, "INVCOUNT.EXE"),
-                    "Use_Suggested_Order_Report": days_since_last(reports, "SUGORDER.EXE"),
-                    "Use_NJ_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
-                    "Use_NJ_Buydowns_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
-                    "Use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
-                    "Use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
-                    "Use_price_level_upcs": "",
-                    "Use_line_item_discount": "Y" if line_discount else "N",
-                    "Use_club_list": "Y" if club_used else "N",
-                    "Use_corp_polling": "",
-                    "Num_of_stores_in_corp_polling": "",
-                    "Use_kits": "Y" if kits_used else "N",
-                    "Use_TOMRA": use_tomra,
-                    "Use_Quick_PO": "",
-                    "ecom_doordash": "",
-                    "ecom_ubereats": "",
-                    "ecom_cthive": "",
-                    "ecom_winefetch": "",
-                    "ecom_bottlenose": "",
-                    "ecom_bottlecaps": ""
-                }
+            line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
+            club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
+            kits_used = any(r.get("stat") == "9" for r in stk)
+            rtn_code = ini.get("Settings", "RtnDeposCode", fallback="").strip()
+            use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
 
+            row = {
+                "store_id (s3_prefix)": combined_id,
+                "report_date": report_date,
+                "start_date": start_date,
+                "end_date": end_date,
+                "Use_Inventory_Counting_Report": days_since_last(reports, "INVCOUNT.EXE"),
+                "Use_Suggested_Order_Report": days_since_last(reports, "SUGORDER.EXE"),
+                "Use_NJ_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+                "Use_NJ_Buydowns_Rips_Report": days_since_last(reports, "BDRIPRPT.EXE"),
+                "Use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
+                "Use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
+                "Use_price_level_upcs": "",
+                "Use_line_item_discount": "Y" if line_discount else "N",
+                "Use_club_list": "Y" if club_used else "N",
+                "Use_corp_polling": "",
+                "Num_of_stores_in_corp_polling": "",
+                "Use_kits": "Y" if kits_used else "N",
+                "Use_TOMRA": use_tomra,
+                "Use_Quick_PO": "",
+                "ecom_doordash": "",
+                "ecom_ubereats": "",
+                "ecom_cthive": "",
+                "ecom_winefetch": "",
+                "ecom_bottlenose": "",
+                "ecom_bottlecaps": ""
+            }
+
+            # ✅ Append row to CSV
+            with open(OUTPUT_FILE, "a", newline="") as out:
+                writer = csv.DictWriter(out, fieldnames=headers)
+                if not wrote_header:
+                    writer.writeheader()
+                    wrote_header = True
                 writer.writerow(row)
 
-            except Exception as e:
-                print(f"⚠️ Skipping {prefix}: {e}")
-                continue
+        except Exception as e:
+            print(f"❌ Failed to process {prefix}: {e}")
+            continue
+
 
     if not found_any_prefix:
         print("❌ No store prefixes were processed. Check if objects exist under each folder.")
