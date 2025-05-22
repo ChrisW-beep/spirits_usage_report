@@ -57,15 +57,21 @@ def read_ini(key):
 
 
 
-def days_since_last(rows, cappname):
-    dates = []
+def days_since_last(rows, target_cappname):
+    recent_date = None
     for r in rows:
-        if r.get("cappname", "").upper() == cappname.upper():
+        if r.get("cappname", "").strip().upper() == target_cappname.upper():
             try:
-                dates.append(datetime.strptime(r["rundate"], "%Y-%m-%d").date())
-            except:
-                continue
-    return (report_date - max(dates)).days if dates else ""
+                run_date = datetime.strptime(r["rundate"].strip(), "%Y-%m-%d").date()
+                if not recent_date or run_date > recent_date:
+                    recent_date = run_date
+            except Exception as e:
+                print(f"[{datetime.now().isoformat()}] ⚠️ Skipping bad rundate in {target_cappname}: {r.get('rundate')} ({e})", flush=True)
+    if recent_date:
+        delta_days = (report_date - recent_date).days
+        return delta_days
+    return ""
+
 
 def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
