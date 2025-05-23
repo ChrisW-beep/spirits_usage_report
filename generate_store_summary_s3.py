@@ -66,7 +66,6 @@ def days_since_last(rows, cappname):
             if r.get("cappname", "").strip().upper() == cappname:
                 raw_date = r.get("rundate", "").strip()
                 if raw_date and raw_date not in ["/", "/ / /", ""]:
-                    # Try both common formats
                     try:
                         parsed = datetime.strptime(raw_date, "%m/%d/%y %I:%M:%S %p").date()
                     except ValueError:
@@ -74,12 +73,11 @@ def days_since_last(rows, cappname):
                     dates.append(parsed)
         except Exception as e:
             print(f"[{datetime.now()}] ⚠️ Skipped invalid date '{raw_date}' for {cappname}: {e}")
-    
+
     if dates:
         last_run = max(dates)
         return (report_date - last_run).days
     return ""
-
 
 def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
@@ -109,7 +107,8 @@ def process_prefix(prefix):
             break
 
     row = {
-        "store_id (s3_prefix)": f"{store_name} ({prefix})",
+        "store_id": store_name,
+        "s3_prefix": prefix,
         "report_date": report_date,
         "start_date": start_date,
         "end_date": end_date,
