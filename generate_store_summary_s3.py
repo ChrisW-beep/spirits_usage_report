@@ -4,6 +4,7 @@ import csv
 import io
 import os
 import re
+import gc
 from configparser import ConfigParser
 from datetime import datetime
 
@@ -107,8 +108,8 @@ def process_prefix(prefix):
             break
 
     row = {
-        "store_id": store_name,
-        "s3_prefix": prefix,
+        "store_name": store_name,
+        "ASI_ID": prefix,
         "report_date": report_date,
         "start_date": start_date,
         "end_date": end_date,
@@ -119,7 +120,7 @@ def process_prefix(prefix):
         "use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
         "use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
         "use_price_level_upcs": "Y",
-        "use_line_item_discount": "Y",
+        "use_line_item_discount": "Y" if line_discount else "N",
         "use_club_list": "Y" if club_used else "N",
         "use_corp_polling": corp_polling,
         "num_of_stores_in_corp_polling": "",
@@ -142,6 +143,10 @@ def process_prefix(prefix):
     key = f"{REPORT_PREFIX}{prefix}_summary.csv"
     s3.put_object(Bucket=BUCKET, Key=key, Body=csv_buffer.getvalue().encode("utf-8"))
     print(f"[{datetime.now()}] ✅ Uploaded {key}", flush=True)
+
+    # Explicitly clear memory
+    del reports, jnl, stk, cnt, ini, str_rows, csv_buffer, writer, row
+    gc.collect()
 
 def main():
     paginator = s3.get_paginator("list_objects_v2")
