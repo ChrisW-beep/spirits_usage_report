@@ -98,7 +98,7 @@ def process_prefix(prefix):
     club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
     kits_used = any(r.get("stat") == "9" for r in stk)
     ini, rtn_code = read_ini_allow_duplicates(f"{base}/spirits.ini")
-    use_tomra = "N" if rtn_code in ["", "99999"] else "Y"
+    use_tomra = "N" if rtn_code in ["", "999999"] else "Y"
 
 
     row = {
