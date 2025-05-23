@@ -2,6 +2,7 @@
 import boto3
 import csv
 import io
+import os
 import re
 from configparser import ConfigParser
 from datetime import datetime
@@ -10,8 +11,8 @@ BUCKET = "spiritsbackups"
 PREFIX_BASE = "processed_csvs/"
 REPORT_PREFIX = "store_reports/"
 report_date = datetime.today().date()
-start_date = ""
-end_date = ""
+start_date = os.environ.get("START_DATE", "")
+end_date = os.environ.get("END_DATE", "")
 
 s3 = boto3.client("s3")
 
@@ -28,7 +29,6 @@ def read_ini_allow_duplicates(key):
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         content = obj["Body"].read().decode("latin1", errors="ignore")
 
-        # Rename duplicate sections
         section_counts = {}
         patched_lines = []
         for line in content.splitlines():
@@ -36,14 +36,12 @@ def read_ini_allow_duplicates(key):
             if section_match:
                 section_name = section_match.group(1).strip()
                 section_key = section_name.upper()
-
                 if section_key in section_counts:
                     section_counts[section_key] += 1
                     new_section = f"{section_name}_{section_counts[section_key]}"
                 else:
                     section_counts[section_key] = 1
                     new_section = section_name
-
                 patched_lines.append(f"[{new_section}]")
             else:
                 patched_lines.append(line)
@@ -54,19 +52,11 @@ def read_ini_allow_duplicates(key):
         patched_content = "\n".join(patched_lines)
         config = ConfigParser()
         config.read_string(patched_content)
-
-        # 🔍 Search all sections for RtnDeposCode
-        rtn_code = ""
-        for section in config.sections():
-            if config.has_option(section, "RtnDeposCode"):
-                rtn_code = config.get(section, "RtnDeposCode").strip()
-                break
-
-        return config, rtn_code
+        return config
 
     except Exception as e:
         print(f"[{datetime.now()}] ❌ Failed to parse {key}: {e}", flush=True)
-        return ConfigParser(), ""
+        return ConfigParser()
 
 def days_since_last(rows, cappname):
     dates = []
@@ -92,14 +82,21 @@ def process_prefix(prefix):
     reports = read_csv(f"{base}/reports.csv")
     jnl = read_csv(f"{base}/jnl.csv")
     stk = read_csv(f"{base}/stk.csv")
+    cnt = read_csv(f"{base}/cnt.csv")
     ini = read_ini_allow_duplicates(f"{base}/spirits.ini")
 
     line_discount = any(r.get("cat") in ["60", "63"] and r.get("rflag") == "0" for r in jnl)
     club_used = any("CLUB" in r.get("promo", "").upper() for r in jnl)
     kits_used = any(r.get("stat") == "9" for r in stk)
-    ini, rtn_code = read_ini_allow_duplicates(f"{base}/spirits.ini")
+    rtn_code = ini.get("S", "RtnDeposCode", fallback="").strip()
     use_tomra = "N" if rtn_code in ["", "999999"] else "Y"
 
+    corp_polling = ""
+    for row in cnt:
+        if row.get("CODE", "").strip().upper() == "CORPPOLL":
+            val = row.get("DATA", "").strip().upper()
+            corp_polling = "Y" if val == "YES" else "N"
+            break
 
     row = {
         "store_id (s3_prefix)": f"{store_name} ({prefix})",
@@ -113,9 +110,9 @@ def process_prefix(prefix):
         "use_inventory_value_analysis_report": days_since_last(reports, "INVANAL"),
         "use_frequent_shopper_report": days_since_last(reports, "FSPURCHHST.EXE"),
         "use_price_level_upcs": "Y",
-        "use_line_item_discount": "Y",
+        "use_line_item_discount": "Y" if line_discount else "N",
         "use_club_list": "Y" if club_used else "N",
-        "use_corp_polling": "",
+        "use_corp_polling": corp_polling,
         "num_of_stores_in_corp_polling": "",
         "use_kits": "Y" if kits_used else "N",
         "use_TOMRA": use_tomra,
