@@ -5,6 +5,7 @@ import io
 import os
 import re
 import gc
+import psutil
 from configparser import ConfigParser
 from datetime import datetime
 
@@ -77,6 +78,11 @@ def days_since_last(rows, target):
             print(f"[{datetime.now()}] ⚠️ Bad rundate '{raw_date}' for {target}: {e}")
     return (report_date - max(dates)).days if dates else ""
 
+def log_memory_usage(prefix):
+    process = psutil.Process()
+    mem = process.memory_info().rss / (1024 * 1024)
+    print(f"[{datetime.now()}] 🔍 Memory after processing {prefix}: {mem:.2f} MB", flush=True)
+
 def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
     str_rows = read_csv(f"{base}/str.csv")
@@ -143,6 +149,7 @@ def process_prefix(prefix):
 
     del reports, jnl, stk, cnt, ini, str_rows, csv_buffer, writer, row
     gc.collect()
+    log_memory_usage(prefix)
 
 def main():
     paginator = s3.get_paginator("list_objects_v2")
