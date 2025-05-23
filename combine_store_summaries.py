@@ -70,13 +70,22 @@ def days_since_last(rows, target):
                 raw_date = r.get("rundate", "").strip()
                 if raw_date and raw_date not in ["/", "/ / /", ""]:
                     try:
-                        parsed = datetime.strptime(raw_date, "%m/%d/%y %I:%M:%S %p").date()
-                    except ValueError:
-                        parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
-                    dates.append(parsed)
+                        # Try common formats one at a time
+                        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%m/%d/%y %I:%M:%S %p", "%Y-%m-%d"):
+                            try:
+                                parsed = datetime.strptime(raw_date, fmt).date()
+                                dates.append(parsed)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            print(f"[{datetime.now()}] ⚠️ Unrecognized rundate format: '{raw_date}'")
+                    except Exception as inner:
+                        print(f"[{datetime.now()}] ⚠️ Skipped bad date for {target}: {raw_date} ({inner})")
         except Exception as e:
-            print(f"[{datetime.now()}] ⚠️ Bad rundate '{raw_date}' for {target}: {e}")
+            print(f"[{datetime.now()}] ⚠️ Unexpected error in days_since_last: {e}")
     return (report_date - max(dates)).days if dates else ""
+
 
 def log_memory_usage(prefix):
     process = psutil.Process()
