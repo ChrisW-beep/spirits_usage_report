@@ -10,7 +10,7 @@ import pandas as pd
 from configparser import ConfigParser
 from datetime import datetime
 
-BUCKET = "spiritsbackups"
+BUCKET = os.environ.get("BUCKET_NAME")
 PREFIX_BASE = "processed_csvs/"
 REPORT_PREFIX = "store_reports/"
 report_date = datetime.today().date()
