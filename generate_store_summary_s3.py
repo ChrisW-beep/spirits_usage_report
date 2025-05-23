@@ -5,6 +5,7 @@ import io
 import os
 import re
 import gc
+import psutil
 from configparser import ConfigParser
 from datetime import datetime
 
@@ -59,26 +60,37 @@ def read_ini_allow_duplicates(key):
         print(f"[{datetime.now()}] ❌ Failed to parse {key}: {e}", flush=True)
         return ConfigParser()
 
-def days_since_last(rows, cappname):
-    cappname = cappname.strip().upper()
+def days_since_last(rows, target):
+    target = target.strip().upper()
     dates = []
     for r in rows:
         try:
-            if r.get("cappname", "").strip().upper() == cappname:
+            raw_capp = r.get("cappname", "").strip().upper()
+            if raw_capp.startswith(target) or target in raw_capp:
                 raw_date = r.get("rundate", "").strip()
                 if raw_date and raw_date not in ["/", "/ / /", ""]:
                     try:
-                        parsed = datetime.strptime(raw_date, "%m/%d/%y %I:%M:%S %p").date()
-                    except ValueError:
-                        parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
-                    dates.append(parsed)
+                        # Try common formats one at a time
+                        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%m/%d/%y %I:%M:%S %p", "%Y-%m-%d"):
+                            try:
+                                parsed = datetime.strptime(raw_date, fmt).date()
+                                dates.append(parsed)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            print(f"[{datetime.now()}] ⚠️ Unrecognized rundate format: '{raw_date}'")
+                    except Exception as inner:
+                        print(f"[{datetime.now()}] ⚠️ Skipped bad date for {target}: {raw_date} ({inner})")
         except Exception as e:
-            print(f"[{datetime.now()}] ⚠️ Skipped invalid date '{raw_date}' for {cappname}: {e}")
+            print(f"[{datetime.now()}] ⚠️ Unexpected error in days_since_last: {e}")
+    return (report_date - max(dates)).days if dates else ""
 
-    if dates:
-        last_run = max(dates)
-        return (report_date - last_run).days
-    return ""
+
+def log_memory_usage(prefix):
+    process = psutil.Process()
+    mem = process.memory_info().rss / (1024 * 1024)
+    print(f"[{datetime.now()}] 🔍 Memory after processing {prefix}: {mem:.2f} MB", flush=True)
 
 def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
@@ -144,9 +156,9 @@ def process_prefix(prefix):
     s3.put_object(Bucket=BUCKET, Key=key, Body=csv_buffer.getvalue().encode("utf-8"))
     print(f"[{datetime.now()}] ✅ Uploaded {key}", flush=True)
 
-    # Explicitly clear memory
     del reports, jnl, stk, cnt, ini, str_rows, csv_buffer, writer, row
     gc.collect()
+    log_memory_usage(prefix)
 
 def main():
     paginator = s3.get_paginator("list_objects_v2")
