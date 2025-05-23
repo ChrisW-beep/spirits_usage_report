@@ -59,17 +59,27 @@ def read_ini_allow_duplicates(key):
         return ConfigParser()
 
 def days_since_last(rows, cappname):
+    cappname = cappname.strip().upper()
     dates = []
     for r in rows:
-        if r.get("cappname", "").strip().upper() == cappname.upper():
-            try:
-                dt = r.get("rundate", "").strip()
-                if dt and dt not in ["/", "/ / /", ""]:
-                    parsed = datetime.strptime(dt, "%m/%d/%y %I:%M:%S %p").date()
+        try:
+            if r.get("cappname", "").strip().upper() == cappname:
+                raw_date = r.get("rundate", "").strip()
+                if raw_date and raw_date not in ["/", "/ / /", ""]:
+                    # Try both common formats
+                    try:
+                        parsed = datetime.strptime(raw_date, "%m/%d/%y %I:%M:%S %p").date()
+                    except ValueError:
+                        parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
                     dates.append(parsed)
-            except Exception as e:
-                print(f"[{datetime.now()}] ⚠️ Skipped bad date for {cappname}: {dt} ({e})")
-    return (report_date - max(dates)).days if dates else ""
+        except Exception as e:
+            print(f"[{datetime.now()}] ⚠️ Skipped invalid date '{raw_date}' for {cappname}: {e}")
+    
+    if dates:
+        last_run = max(dates)
+        return (report_date - last_run).days
+    return ""
+
 
 def process_prefix(prefix):
     base = f"{PREFIX_BASE}{prefix}"
